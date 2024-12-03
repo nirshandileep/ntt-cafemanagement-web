@@ -1,34 +1,40 @@
 import React, { useEffect, useState } from 'react';
-import { useSelector, useDispatch } from 'react-redux';
-import { useParams, Link } from 'react-router-dom';
-import { deleteEmployee } from '../redux/employeesSlice';
-import { selectCafes } from '../redux/cafesSlice';
-import { Button, Space, Modal, notification } from 'antd';
-import { AgGridReact } from 'ag-grid-react';
-import 'ag-grid-community/styles/ag-grid.css';
-import 'ag-grid-community/styles/ag-theme-alpine.css';
+import { useParams, Link, useLocation } from 'react-router-dom';
+import { Table, Button, Space, Modal, notification } from 'antd';
+import { EditOutlined, DeleteOutlined } from '@ant-design/icons';
+import axios from 'axios';
+import { API_BASE_URL } from '../pages/constants';
 
 const EmployeesPage = () => {
   const { cafeId } = useParams();
-  const dispatch = useDispatch();
-  const employees = useSelector((state) => state.employees.items);
-  const cafes = useSelector(selectCafes);
-
-  const [filteredEmployees, setFilteredEmployees] = useState([]);
+  const location = useLocation();
+  const [employees, setEmployees] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [cafeName, setCafeName] = useState(location.state?.cafeName || '');
 
   useEffect(() => {
-    const filtered = cafeId ? employees.filter((emp) => emp.cafeId === cafeId) : employees;
-    setFilteredEmployees(filtered);
-  }, [cafeId, employees]);
+    fetchEmployees(cafeId);
+  }, [cafeId]);
 
-  const handleDelete = (id) => {
-    dispatch(deleteEmployee(id));
-    notification.success({ message: 'Employee deleted successfully' });
+  const fetchEmployees = async (cafe) => {
+    setLoading(true);
+    try {
+      const response = await axios.get(`${API_BASE_URL}/employees`, {
+        params: { cafe },
+      });
+      setEmployees(response.data);
+    } catch (err) {
+      setError('Failed to load employees.');
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const showDeleteConfirm = (id) => {
     Modal.confirm({
-      title: 'Are you sure you want to delete this employee?',
+      title: 'Are you sure you want to delete?',
       content: 'This action cannot be undone.',
       okText: 'Yes',
       okType: 'danger',
@@ -36,61 +42,70 @@ const EmployeesPage = () => {
       onOk: () => {
         handleDelete(id);
       },
-      onCancel: () => {
-        console.log('Delete cancelled');
-      },
     });
   };
 
+  const handleDelete = async (id) => {
+    try {
+      await axios.delete(`${API_BASE_URL}/employees/${id}`);
+      notification.success({ message: 'Employee deleted successfully' });
+      setEmployees((prevEmployees) => prevEmployees.filter((emp) => emp.id !== id));
+    } catch (error) {
+      notification.error({
+        message: 'Error deleting employee',
+        description: error.response?.data || 'An error occurred',
+      });
+    }
+  };
+
   const columns = [
-    { headerName: 'Employee ID', field: 'id', sortable: true, filter: true },
-    { headerName: 'Name', field: 'name', sortable: true, filter: true },
-    { headerName: 'Email Address', field: 'email', sortable: true, filter: true },
-    { headerName: 'Phone Number', field: 'phone', sortable: true, filter: true },
-    { headerName: 'Days Worked', field: 'daysWorked', sortable: true, filter: true },
+    { title: 'Employee ID', dataIndex: 'id', key: 'id' },
+    { title: 'Name', dataIndex: 'name', key: 'name' },
+    { title: 'Email Address', dataIndex: 'emailAddress', key: 'emailAddress' },
+    { title: 'Phone Number', dataIndex: 'phoneNumber', key: 'phoneNumber' },
+    { title: 'Days Worked', dataIndex: 'daysWorked', key: 'daysWorked' },
+    { title: 'Cafe', dataIndex: 'cafe', key: 'cafe' },
     {
-      headerName: 'Café Name',
-      valueGetter: (params) => {
-        const cafe = cafes.find((cafe) => cafe.id === params.data.cafeId);
-        return cafe ? cafe.name : 'Unknown Cafe';
-      },
-      sortable: true,
-      filter: true,
-    },
-    {
-      headerName: 'Actions',
-      field: 'actions',
-      width: 200,
-      cellRendererFramework: (params) => {
-        if (!params.data) return null;
-        return (
-          <Space>
-            <Link to={`/edit-employee/${params.data.id}/${cafeId || ''}`}>
-              <Button type="primary">Edit</Button>
-            </Link>
-            <Button
-              type="danger"
-              onClick={() => showDeleteConfirm(params.data.id)}
-            >
-              Delete
+      title: 'Actions',
+      key: 'actions',
+      render: (text, record) => (
+        <Space>
+          <Link to={`/edit-employee/${record.id}/${cafeId || ''}`}>
+            <Button type="primary" icon={<EditOutlined />}>
+              Edit
             </Button>
-          </Space>
-        );
-      },
+          </Link>
+          <Button
+            type="danger"
+            icon={<DeleteOutlined />}
+            onClick={() => showDeleteConfirm(record.id)}
+          >
+            Delete
+          </Button>
+        </Space>
+      ),
     },
   ];
 
+  if (loading) return <div>Loading...</div>;
+  if (error) return <div>{error}</div>;
+
   return (
-    <div className="container">
-      <h2 className="text-2xl font-semibold mb-4">Employees at {cafeId ? `Cafe ${cafeId}` : 'All Cafes'}</h2>
-      <div className="ag-theme-alpine" style={{ height: 500, width: '100%' }}>
-        <AgGridReact
-          rowData={filteredEmployees}
-          columnDefs={columns}
-          pagination={true}
-          paginationPageSize={10}
+    <div className="p-4">
+      <h2 className="text-2xl font-semibold mb-4">
+        Employees {cafeId && `at ${cafeName}`}
+      </h2>
+      {employees.length === 0 ? (
+        <p>No employees found</p>
+      ) : (
+        <Table
+          columns={columns}
+          dataSource={employees}
+          rowKey="id"
+          pagination
+          scroll={{ x: 'max-content' }}
         />
-      </div>
+      )}
       <div className="mt-4">
         <Link to={`/add-employee${cafeId ? `/${cafeId}` : ''}`}>
           <Button type="primary">Add New Employee</Button>
@@ -98,6 +113,7 @@ const EmployeesPage = () => {
       </div>
     </div>
   );
+  
 };
 
 export default EmployeesPage;
