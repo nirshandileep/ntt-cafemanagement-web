@@ -1,39 +1,47 @@
 import React, { useState, useEffect } from 'react';
-import { useDispatch, useSelector } from 'react-redux';
 import { Table, Button, Modal, Space, Input, notification } from 'antd';
 import { Link } from 'react-router-dom';
-import { deleteCafe } from '../redux/cafesSlice';
 import { EditOutlined, DeleteOutlined } from '@ant-design/icons';
-import { selectCafes } from '../redux/cafesSlice';
+import axios from 'axios';
+import { API_BASE_URL } from '../pages/constants';
 
 const { Search } = Input;
 
 const CafesPage = () => {
-  const dispatch = useDispatch();
-  const cafes = useSelector(selectCafes);
+  const [cafes, setCafes] = useState([]);
+  const [filteredCafes, setFilteredCafes] = useState([]);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [filteredCafes, setFilteredCafes] = useState(cafes);
-  const [searchTerm, setSearchTerm] = useState('');
 
   useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearchTerm(searchTerm);
+    }, 500); // 500ms debounce delay
+
+    return () => clearTimeout(timer); // Cleanup timeout on unmount or input change
+  }, [searchTerm]);
+
+  useEffect(() => {
+    fetchCafes(debouncedSearchTerm); // Fetch data only when debouncedSearchTerm changes
+  }, [debouncedSearchTerm]);
+
+  const fetchCafes = async (location = '') => {
     setLoading(true);
     try {
-      // Logic to fetch cafes data can be added here if required
+      const response = await axios.get(`${API_BASE_URL}/cafes/location`, {
+        params: { location },
+      });
+      setCafes(response.data);
+      setFilteredCafes(response.data);
     } catch (err) {
       setError('Failed to load cafes.');
+      console.error(err);
     } finally {
       setLoading(false);
     }
-  }, []);
-
-  useEffect(() => {
-    const lowercasedSearchTerm = searchTerm.toLowerCase();
-    const filteredData = cafes.filter(
-      (cafe) => cafe.location.toLowerCase().includes(lowercasedSearchTerm)
-    );
-    setFilteredCafes(filteredData);
-  }, [searchTerm, cafes]);
+  };
 
   const showDeleteConfirm = (id) => {
     Modal.confirm({
@@ -45,9 +53,6 @@ const CafesPage = () => {
       onOk: () => {
         handleDelete(id);
       },
-      onCancel: () => {
-        console.log('Delete cancelled');
-      },
     });
   };
 
@@ -55,21 +60,34 @@ const CafesPage = () => {
     setSearchTerm(e.target.value);
   };
 
-  const handleDelete = (id) => {
-    dispatch(deleteCafe(id));
-    notification.success({ message: 'Cafe deleted successfully' });
+  const handleDelete = async (id) => {
+    try {
+      await axios.delete(`${API_BASE_URL}/cafes/${id}`);
+      notification.success({ message: 'Cafe deleted successfully' });
+      setCafes((prevCafes) => prevCafes.filter((cafe) => cafe.id !== id));
+      setFilteredCafes((prevCafes) => prevCafes.filter((cafe) => cafe.id !== id));
+    } catch (error) {
+      notification.error({
+        message: 'Error deleting cafe',
+        description: error.response?.data || 'An error occurred',
+      });
+    }
   };
 
   const columns = [
     { title: 'Cafe ID', dataIndex: 'id', key: 'id' },
     { title: 'Name', dataIndex: 'name', key: 'name' },
     { title: 'Description', dataIndex: 'description', key: 'description' },
+    { title: 'Employees', dataIndex: 'employees', key: 'employees' },
     { title: 'Location', dataIndex: 'location', key: 'location' },
     {
       title: 'View Employees',
       key: 'viewEmployees',
       render: (text, record) => (
-        <Link to={`/employees/${record.id}`}>
+        <Link
+          to={`/employees/${record.id}`}
+          state={{ cafeName: record.name }}
+        >
           <Button type="default" icon={<EditOutlined />} className="mr-2">
             View Employees
           </Button>
@@ -84,7 +102,6 @@ const CafesPage = () => {
           <Link to={`/edit-cafe/${record.id}`}>
             <Button type="primary" icon={<EditOutlined />}>Edit</Button>
           </Link>
-          
           <Button
             type="danger"
             icon={<DeleteOutlined />}
